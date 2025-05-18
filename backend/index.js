@@ -13,7 +13,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "https://chat-app-six-ochre-62.vercel.app/",
+    origin: "https://chat-app-six-ochre-62.vercel.app",
     methods: ["GET", "POST"],
     credentials: true,
     allowedHeaders: ["Authorization"],
@@ -26,7 +26,7 @@ const huffman = new HuffmanCoding();
 // Middleware
 
 app.use(cors({
-  origin: "https://chat-app-six-ochre-62.vercel.app/",
+  origin: "https://chat-app-six-ochre-62.vercel.app",
   credentials: true,
   methods: ["GET", "POST"],
   allowedHeaders: ["Authorization", "Content-Type"]
