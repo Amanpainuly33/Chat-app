@@ -168,56 +168,8 @@ io.on("connection", (socket) => {
     { online: true, lastSeen: new Date() }
   ).catch(console.error);
 
-
-  // socket.on("privateMessage", async (data) => {
-  //   try {
-
-  //   const charCount = data.text.length;
-  //   const byteSize = Buffer.byteLength(data.text, "utf8");
-  //   console.log(
-  //     `Incoming privateMessage: ${charCount} chars, ${byteSize} bytes`
-  //   );
-
-  //   //****** saving in db */
-  //     const message = new Message({
-  //       text: data.text,
-  //       sender: socket.user.username,
-  //       receiver: data.receiver,
-  //       room: `private_${[socket.user.username, data.receiver]
-  //         .sort()
-  //         .join("_")}`,
-  //     });
-  //     await message.save();
-  //   //******* */
-
-  //     // Emit to sender
-  //     socket.emit("privateMessage", {
-  //       text: data.text,
-  //       sender: socket.user.username,
-  //       receiver: data.receiver,
-  //       timestamp: message.timestamp,
-  //     });
-
-  //     // Emit to receiver if online
-  //     const receiverSocket = Array.from(io.sockets.sockets.values()).find(
-  //       (s) => s.user?.username === data.receiver
-  //     );
-
-  //     if (receiverSocket) {
-  //       receiverSocket.emit("privateMessage", {
-  //         text: data.text,
-  //         sender: socket.user.username,
-  //         receiver: data.receiver,
-  //         timestamp: message.timestamp,
-  //       });
-  //     }
-  //   } catch (error) {
-  //     console.error("Error sending private message:", error);
-  //   }
-  // });
-
   // Handle private messages with conditional Huffman compression
-  socket.on("privateMessage", async ({ text, receiver }) => {
+  socket.on("privateMessage", async ({ text, receiver, isFile, fileName }) => {
     try {
       const originalSize = Buffer.byteLength(text, "utf8");
       console.log(`Original message size: ${originalSize} bytes`);
@@ -225,12 +177,32 @@ io.on("connection", (socket) => {
       let toStore = text;
       let wasCompressed = false;
 
-      if (originalSize > 50) {
+      // For files, show file-specific compression info
+      if (isFile) {
+        console.log(`Original file size: ${originalSize} bytes`);
+        if (originalSize > 1024) {
+          const compressedData = huffman.encode(text);
+          const compressedSize = compressedData.encoded.length;
+          console.log(`Compressed file size: ${compressedSize} bytes`);
+          console.log(
+            `File compression ratio: ${(
+              (1 - compressedSize / originalSize) *
+              100
+            ).toFixed(2)}%`
+          );
+          toStore = JSON.stringify(compressedData);
+          wasCompressed = true;
+        } else {
+          console.log('File size <= 1KB, no compression needed');
+        }
+      } 
+      // For regular messages, show message compression info
+      else if (originalSize > 50) {
         const compressedData = huffman.encode(text);
         const compressedSize = compressedData.encoded.length;
         console.log(`Compressed message size: ${compressedSize} bytes`);
         console.log(
-          `Compression ratio: ${(
+          `Message compression ratio: ${(
             (1 - compressedSize / originalSize) *
             100
           ).toFixed(2)}%`
@@ -238,7 +210,6 @@ io.on("connection", (socket) => {
         toStore = JSON.stringify(compressedData);
         wasCompressed = true;
       }
-      //console.log(toStore);
 
       const message = new Message({
         text: toStore,
@@ -246,16 +217,20 @@ io.on("connection", (socket) => {
         receiver: receiver,
         timestamp: new Date(),
         compressed: wasCompressed,
+        isFile: isFile || false,
+        fileName: fileName || null
       });
       await message.save();
 
       // Emit to sender
       socket.emit("privateMessage", {
-        text: text, 
+        text: text,
         sender: socket.user.username,
-        receiver: receiver, 
+        receiver: receiver,
         timestamp: message.timestamp,
         compressed: wasCompressed,
+        isFile: isFile || false,
+        fileName: fileName || null
       });
 
       // Emit to receiver if online
@@ -270,6 +245,8 @@ io.on("connection", (socket) => {
           receiver: receiver,
           timestamp: message.timestamp,
           compressed: wasCompressed,
+          isFile: isFile || false,
+          fileName: fileName || null
         });
       }
     } catch (error) {
@@ -277,38 +254,21 @@ io.on("connection", (socket) => {
     }
   });
 
-  // socket.on("getMessageHistory", async (data) => {
-  //   try {
-  //     const room = `private_${[socket.user.username, data.otherUser]
-  //       .sort()
-  //       .join("_")}`;
-  //     const messages = await Message.find({ room })
-  //       .sort({ timestamp: 1 })
-  //       .limit(50);
-  //     socket.emit("messageHistory", messages);
-  //   } catch (error) {
-  //     console.error("Error fetching message history:", error);
-  //   }
-  // });
-
   // Handle history requests with conditional Huffman decompression
-
   socket.on('getMessageHistory', async ({ otherUser }) => {
     try {
-     
       const messages = await Message.find({
         $or: [
-          { sender:   socket.user.username, receiver: otherUser },
-          { sender:   otherUser,              receiver: socket.user.username }
+          { sender: socket.user.username, receiver: otherUser },
+          { sender: otherUser, receiver: socket.user.username }
         ]
       })
       .sort({ timestamp: 1 })
       .lean();
-  
-   
+
       const history = messages.map(msg => {
         let textOut = msg.text;
-  
+
         if (msg.compressed) {
           try {
             // a) Parse the JSON string back to object
@@ -323,25 +283,25 @@ io.on("connection", (socket) => {
             console.error('Error decoding compressed message:', e);
           }
         }
-  
+
         return {
-          text:      textOut,
-          sender:    msg.sender,
-          receiver:  msg.receiver,
+          text: textOut,
+          sender: msg.sender,
+          receiver: msg.receiver,
           timestamp: msg.timestamp,
-          compressed: msg.compressed
+          compressed: msg.compressed,
+          isFile: msg.isFile,
+          fileName: msg.fileName
         };
       });
-  
-      // 3. Emit back to the requester
+
+      // Emit back to the requester
       socket.emit('messageHistory', history);
-  
+
     } catch (error) {
       console.error('Error handling message history:', error);
     }
   });
-  
-
 
   socket.on("disconnect", async () => {
     try {

@@ -29,6 +29,14 @@ const messageSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isFile: {
+    type: Boolean,
+    default: false
+  },
+  fileName: {
+    type: String,
+    default: null
+  }
 });
 
 module.exports = mongoose.model('Message', messageSchema); 
